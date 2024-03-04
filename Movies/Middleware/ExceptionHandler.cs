@@ -1,5 +1,9 @@
-﻿using Movies.Domain.Exceptions;
-using System.Text.Json;
+﻿using Microsoft.Extensions.Primitives;
+using Microsoft.Net.Http.Headers;
+using Movies.Domain.DTO;
+using Movies.Domain.Exceptions;
+using Movies.Domain.ExtensionMethods;
+
 
 namespace Movies.Middleware
 {
@@ -23,23 +27,52 @@ namespace Movies.Middleware
 			}
 		}
 
-		private static async Task HandleServiceException(HttpContext context, ServiceException serviceException)
+		private static async Task HandleError(HttpContext context, Error error)
 		{
-			await HandleException(context, serviceException, (int)serviceException.HttpStatusCode);
+			string responseType = GetPreferredContentType(context.Request.Headers.Accept);
+
+			context.Response.StatusCode = error.Status;
+			context.Response.ContentType = responseType;
+
+			string responseBody = responseType switch
+			{
+				"application/xml" => error.ToXml(),
+				_ => error.ToJson(),
+			};
+
+			await context.Response.WriteAsync(responseBody);
 		}
 
-		private static async Task HandleException(HttpContext context, Exception exception, int httpStatusCode = 500)
+		private static string GetPreferredContentType(StringValues acceptHeader)
 		{
-			context.Response.StatusCode = httpStatusCode;
-			context.Response.ContentType = "application/json";
+			var mediaTypes = MediaTypeHeaderValue.ParseList(acceptHeader);
 
-			string json = JsonSerializer.Serialize(new
+			var json = mediaTypes.FirstOrDefault(mt => mt.MediaType == "application/json");
+			var xml = mediaTypes.FirstOrDefault(mt => mt.MediaType == "application/xml");
+
+			double jsonQuality = json == null ? 0 : json.Quality ?? 1;
+			double xmlQuality = xml == null ? 0 : xml.Quality ?? 1;
+
+			return jsonQuality >= xmlQuality ? "application/json" : "application/xml";
+		}
+
+		private static async Task HandleServiceException(HttpContext context, ServiceException serviceException)
+		{
+			Error error = new()
 			{
-				status = httpStatusCode,
-				message = exception.Message
-			});
+				Status = (int)serviceException.HttpStatusCode,
+				Message = serviceException.Message
+			};
 
-			await context.Response.WriteAsync(json);
+			await HandleError(context, error);
+		}
+
+		private static async Task HandleException(HttpContext context, Exception exception)
+		{
+			await HandleError(context, new Error());
+
+			// Log
+			Console.WriteLine(exception.Message);
 		}
 	}
 }

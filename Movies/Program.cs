@@ -13,7 +13,7 @@ namespace Movies
 		{
 			var builder = WebApplication.CreateBuilder(args);
 
-			builder.Services.AddControllers();
+			builder.Services.AddControllers().AddXmlSerializerFormatters();
 
 			builder.Services.AddScoped<IFilmService, FilmService>();
 			builder.Services.AddScoped<IRepository<Film, Guid>, Repository<Film, Guid>>();
